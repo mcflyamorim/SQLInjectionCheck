@@ -153,12 +153,9 @@ param
     [switch] $ExportTrace = $true                        # Export per-object trace detail files
 )
 Clear-Host  # Clear console for clean output
-Write-Msg -Message "Starting Test-TSqlInjection script" -Level Starting
-
 # -----------------------------
 # IMPORT REQUIRED MODULES / FUNCTIONS
 # -----------------------------
-Write-Msg -Message "Importing required modules and functions" -Level Starting
 
 # Identify current script directory so relative imports work even if run from another path
 $ScriptPath = Split-Path $($MyInvocation.MyCommand.Definition)
@@ -166,7 +163,7 @@ $ScriptPath = Split-Path $($MyInvocation.MyCommand.Definition)
 # Import prerequisite script that loads dbatools, ImportExcel, and logging helpers
 . (Join-Path $ScriptPath 'Import-RequiredModules.ps1')
 
-Write-Msg -Message "Finished to import required modules and functions" -Level Finished
+Write-Msg -Message "Starting Test-TSqlInjection script" -Level Starting
 
 # -----------------------------
 # MAIN EXECUTION BODY
