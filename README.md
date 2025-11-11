@@ -83,6 +83,14 @@ Use `Test-TSqlInjection.ps1` to validate detection against known patterns.
 * Per-statement trace files grouped under the output folder for manual review.
 * Logs and exit codes suitable for automation.
 
+### Output sample of a quick call of Invoke-TSqlChecks:
+
+![Excel report](/Picture1.png)
+
+### Output sample of a to Test-TSqlInjection and Excel spreadsheet output:
+
+![Excel report](/Gif1.gif)
+
 ## Recommendations & caveats
 
 * Run only in authorized, controlled environments. The tool reads object definitions and metadata. Do not run against production without approvals and backups.
