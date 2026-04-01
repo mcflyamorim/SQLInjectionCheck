@@ -23,7 +23,7 @@ function Write-Msg {
             'Error'    {'Error   '}
     }    
     $dt = Get-Date -format "yyyy-MM-dd hh:mm:ss"
-    if (($ShowVerboseMessages) -and ($VerboseMsg)){
+    if (($Global:ShowVerboseMessages) -and ($VerboseMsg)){
         Write-Host ("[{0}] - $Level - {1} `r" -f $dt, $Message) -ForegroundColor $ForegroundColor
     }
     elseif ($false -eq $VerboseMsg) {
@@ -32,8 +32,8 @@ function Write-Msg {
     if ($null -eq $script:TraceBuffer){
         $script:TraceBuffer = @()
     }
-    if ($VerboseMsg) {$script:TraceBuffer += "[{0:HH:mm:ss.fff}] {1,-8} {2}" -f (Get-Date), $Level, $Message}
-    
+    # $script:TraceBuffer += "[{0:HH:mm:ss.fff}] {1,-8} {2}" -f (Get-Date), $Level, $Message
+    $script:TraceBuffer += "[{0}] - $Level - {1} `r" -f $dt, $Message
 }
 
 # Check if DbaTools module is already loaded, if not, try to import it

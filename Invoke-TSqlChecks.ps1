@@ -45,7 +45,7 @@ class SqlInjectionVisitor : Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragme
         #Write-Msg -Message "Visiting ProcedureParameter $($Fragment.VariableName.Value) at line $($Fragment.StartLine)..." -VerboseMsg
         $this.AddVisitorResult($Fragment.StartOffset, $Fragment)
         $Fragment.AcceptChildren($this)
-    }    
+    }
 
     [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.ProcedureParameter] $Fragment) {
         #Write-Msg -Message "Visiting ProcedureParameter $($Fragment.VariableName.Value) at line $($Fragment.StartLine)..." -VerboseMsg
@@ -112,6 +112,375 @@ class SqlInjectionVisitor : Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragme
         $this.AddVisitorResult($Fragment.StartOffset, $Fragment)
         $Fragment.AcceptChildren($this)
     }
+
+    #Adding visitors for DML or DDL events to capture scenarios vulnerable to trigger hijacking.
+    #Starting with the DML events
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.InsertStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.InsertSpecification.Target.SchemaObject.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($Fragment.InsertSpecification.Target -is [Microsoft.SqlServer.TransactSql.ScriptDom.VariableTableReference]){
+            $BaseIdentifier = $Fragment.InsertSpecification.Target.Variable.Name
+        }
+        elseif ($null -ne $Fragment.InsertSpecification.Target.SchemaObject -and $null -ne $Fragment.InsertSpecification.Target.SchemaObject.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.InsertSpecification.Target.SchemaObject.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#" -and $BaseIdentifier[0] -ne "@") {
+            $Global:DMLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DeleteStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.DeleteSpecification.Target.SchemaObject.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($Fragment.DeleteSpecification.Target -is [Microsoft.SqlServer.TransactSql.ScriptDom.VariableTableReference]){
+            $BaseIdentifier = $Fragment.DeleteSpecification.Target.Variable.Name
+        }
+        elseif ($null -ne $Fragment.DeleteSpecification.Target.SchemaObject -and $null -ne $Fragment.DeleteSpecification.Target.SchemaObject.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.DeleteSpecification.Target.SchemaObject.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#" -and $BaseIdentifier[0] -ne "@") {
+            $Global:DMLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.UpdateStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.UpdateSpecification.Target.SchemaObject.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($Fragment.UpdateSpecification.Target -is [Microsoft.SqlServer.TransactSql.ScriptDom.VariableTableReference]){
+            $BaseIdentifier = $Fragment.UpdateSpecification.Target.Variable.Name
+        }
+        elseif ($null -ne $Fragment.UpdateSpecification.Target.SchemaObject -and $null -ne $Fragment.UpdateSpecification.Target.SchemaObject.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.UpdateSpecification.Target.SchemaObject.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#" -and $BaseIdentifier[0] -ne "@") {
+            $Global:DMLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.MergeStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.MergeSpecification.Target.SchemaObject.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($Fragment.MergeSpecification.Target -is [Microsoft.SqlServer.TransactSql.ScriptDom.VariableTableReference]){
+            $BaseIdentifier = $Fragment.MergeSpecification.Target.Variable.Name
+        }
+        elseif ($null -ne $Fragment.MergeSpecification.Target.SchemaObject -and $null -ne $Fragment.MergeSpecification.Target.SchemaObject.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.MergeSpecification.Target.SchemaObject.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#" -and $BaseIdentifier[0] -ne "@") {
+            $Global:DMLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+
+    #DDL events
+    # AlterAssemblyStatement and CreateAssemblyStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterAssemblyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateAssemblyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    
+    # DropAggregateStatement, DropAssemblyStatement, DropDefaultStatement, DropFunctionStatement, DropProcedureStatement, DropRuleStatement, DropSynonymStatement, DropTableStatement, DropTriggerStatement, DropViewStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropAggregateStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropAssemblyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropDefaultStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropFunctionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropProcedureStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.SchemaObjectName.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($null -ne $Fragment.SchemaObjectName -and $null -ne $Fragment.SchemaObjectName.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.SchemaObjectName.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#") {
+            $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropRuleStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropSynonymStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropTableStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.SchemaObjectName.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        # loop for each object in $Fragment.Objects, if property BaseIdentifier.Value exists, read it
+        foreach ($Object in $Fragment.Objects) {
+            if ($null -ne $Object -and $null -ne $Object.BaseIdentifier) {
+                $BaseIdentifier = $Object.BaseIdentifier.Value
+                # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+                if ($BaseIdentifier[0] -ne "#") {
+                    $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+                }
+            }
+        }
+    }
+    
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropTriggerStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropViewStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.SchemaObjectName.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($null -ne $Fragment.SchemaObjectName -and $null -ne $Fragment.SchemaObjectName.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.SchemaObjectName.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#") {
+            $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+    
+
+    # DropApplicationRoleStatement, DropAsymmetricKeyStatement, DropBrokerPriorityStatement, DropCertificateStatement, DropContractStatement, DropCredentialStatement, DropCryptographicProviderStatement, 
+    # DropDatabaseAuditSpecificationStatement, DropEndpointStatement, DropEventSessionStatement, DropFullTextCatalogStatement, DropFullTextStopListStatement, DropLoginStatement, DropMessageTypeStatement, 
+    # DropPartitionFunctionStatement, DropPartitionSchemeStatement, DropRemoteServiceBindingStatement, DropResourcePoolStatement, DropRoleStatement, DropRouteStatement, DropServerAuditSpecificationStatement, 
+    # DropServerAuditStatement, DropServiceStatement, DropSymmetricKeyStatement, DropUserStatement, DropWorkloadGroupStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropApplicationRoleStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropAsymmetricKeyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropBrokerPriorityStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropCertificateStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropContractStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropCredentialStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropCryptographicProviderStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropDatabaseAuditSpecificationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropEndpointStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropEventSessionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropFullTextCatalogStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropFullTextStopListStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropLoginStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropMessageTypeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropPartitionFunctionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropPartitionSchemeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropRemoteServiceBindingStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropResourcePoolStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropRoleStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropRouteStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropServerAuditSpecificationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropServerAuditStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropServiceStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropSymmetricKeyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropUserStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropWorkloadGroupStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+        
+    # AlterAuthorizationStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterAuthorizationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterBrokerPriorityStatement, CreateBrokerPriorityStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterBrokerPriorityStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateBrokerPriorityStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterCertificateStatement, BackupCertificateStatement, CreateCertificateStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterCertificateStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.BackupCertificateStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateCertificateStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    
+    # CreateContractStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateContractStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    
+    # AlterCredentialStatement, CreateCredentialStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterCredentialStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateCredentialStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # DenyStatement, GrantStatement, RevokeStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DenyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.GrantStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.RevokeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterDatabaseAuditSpecificationStatement, AlterServerAuditSpecificationStatement, CreateDatabaseAuditSpecificationStatement, CreateServerAuditSpecificationStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterDatabaseAuditSpecificationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterServerAuditSpecificationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateDatabaseAuditSpecificationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateServerAuditSpecificationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    
+    # AlterDatabaseEncryptionKeyStatement, CreateDatabaseEncryptionKeyStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterDatabaseEncryptionKeyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateDatabaseEncryptionKeyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateDefaultStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateDefaultStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateEventNotificationStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateEventNotificationStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterFullTextCatalogStatement, CreateFullTextCatalogStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterFullTextCatalogStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateFullTextCatalogStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateFullTextIndexStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateFullTextIndexStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateFullTextStopListStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateFullTextStopListStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterFullTextStopListStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterFullTextStopListStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # # CreateFunctionStatement
+    # [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateFunctionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterFunctionStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterFunctionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterIndexStatement, CreateIndexStatement, CreateXmlIndexStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterIndexStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateIndexStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateXmlIndexStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    
+    # AlterMasterKeyStatement, CreateMasterKeyStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterMasterKeyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateMasterKeyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    
+    # AlterMessageTypeStatement, CreateMessageTypeStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterMessageTypeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateMessageTypeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreatePartitionFunctionStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreatePartitionFunctionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterPartitionFunctionStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterPartitionFunctionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreatePartitionSchemeStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreatePartitionSchemeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterPartitionSchemeStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterPartitionSchemeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateProcedureStatement
+    # [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateProcedureStatement] $Fragment) {
+    #     $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+    #     $Fragment.AcceptChildren($this); 
+    #     # If property $Fragment.SchemaObjectName.BaseIdentifier.Value exists, read it
+    #     $BaseIdentifier = ""
+    #     if ($null -ne $Fragment.SchemaObjectName -and $null -ne $Fragment.SchemaObjectName.BaseIdentifier) {
+    #         $BaseIdentifier = $Fragment.SchemaObjectName.BaseIdentifier.Value
+    #     }
+    #     # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+    #     if ($BaseIdentifier[0] -ne "#") {
+    #         $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+    #     }
+    # }
+
+    # AlterProcedureStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterProcedureStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateQueueStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateQueueStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterQueueStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterQueueStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateSpatialIndexStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateSpatialIndexStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # Rename - sp_rename
+    # Todo
+
+    # AlterRoleStatement, CreateRoleStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterRoleStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateRoleStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterRouteStatement, CreateRouteStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterRouteStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateRouteStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateRuleStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateRuleStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateSchemaStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateSchemaStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterSchemaStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterSchemaStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateSequenceStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateSequenceStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterSequenceStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterSequenceStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # DropSequenceStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropSequenceStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateStatisticsStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateStatisticsStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # DropStatisticsStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.DropStatisticsStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # UpdateStatisticsStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.UpdateStatisticsStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateSymmetricKeyStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateSymmetricKeyStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateSynonymStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateSynonymStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateTableStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateTableStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.SchemaObjectName.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($null -ne $Fragment.SchemaObjectName -and $null -ne $Fragment.SchemaObjectName.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.SchemaObjectName.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#" -and $BaseIdentifier[0] -ne "@") {
+            $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+
+    # AlterTableStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterTableStatement] $Fragment) {
+        $this.AddVisitorResult($Fragment.StartOffset, $Fragment); 
+        $Fragment.AcceptChildren($this); 
+        # If property $Fragment.SchemaObjectName.BaseIdentifier.Value exists, read it
+        $BaseIdentifier = ""
+        if ($null -ne $Fragment.SchemaObjectName -and $null -ne $Fragment.SchemaObjectName.BaseIdentifier) {
+            $BaseIdentifier = $Fragment.SchemaObjectName.BaseIdentifier.Value
+        }
+        # if $BaseIdentifier starts with #, it's a temporary object, so ignore it
+        if ($BaseIdentifier[0] -ne "#") {
+            $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}
+        }
+    }
+
+    # # CreateTriggerStatement
+    # [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateTriggerStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterTriggerStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterTriggerStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateTypeStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateTypeStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateUserStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateUserStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterUserStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterUserStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # # CreateViewStatement
+    # [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateViewStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this)}
+
+    # AlterViewStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterViewStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # CreateXmlSchemaCollectionStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.CreateXmlSchemaCollectionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
+    # AlterXmlSchemaCollectionStatement
+    [void] ExplicitVisit([Microsoft.SqlServer.TransactSql.ScriptDom.AlterXmlSchemaCollectionStatement] $Fragment) {$this.AddVisitorResult($Fragment.StartOffset, $Fragment); $Fragment.AcceptChildren($this); $Global:DDLEvents += [PsCustomObject]@{Message = ""; Line = $Fragment.StartLine; Type = $Fragment.GetType().Name; Fragment = $Fragment}}
+
 }
 
 function Add-TSqlCheckResult([string]$Message) {
@@ -122,7 +491,7 @@ function Add-TSqlCheckResult([string]$Message) {
     }
 }
 
-function Add-ExecVulnerability([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragment] $Fragment, [string] $Msg) {
+function Add-ExecVulnerability([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragment] $Fragment, [string] $Msg, [string] $VulnerabilityType = "SQL Injection", [bool]$ReportTriggerVuln = $false) {
     # Generate the query text for the scalar expression
     $QueryText = ""
     $QueryText = Get-FragmentText($Fragment)
@@ -134,16 +503,34 @@ function Add-ExecVulnerability([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFr
         $Msg = $Msg.Substring($Pos + 2)
     }
 
-    $Msg = "Warning - Potential SQL Injection at line $StartLine, Fragment: $QueryText, Comment: " + $Msg
-
-    # If vulnerability was already added on $Global:TSqlCheckResults, return
-    $AlreadyAdded = $null
-    $AlreadyAdded = $Global:TSqlCheckResults | Where-Object { $_.Message -eq $Msg}
-    if ($null -ne $AlreadyAdded) {
-        return
+    # if $VulnerabilityType is empty, set it to "SQL Injection"
+    if ([string]::IsNullOrEmpty($VulnerabilityType)) {
+        $VulnerabilityType = "SQL Injection"
     }
-    #Write-Msg -Message $Msg -Level Warning -VerboseMsg
-    Add-TSqlCheckResult -Message $Msg
+
+    if ($VulnerabilityType -eq "Trigger permission hijacking") {
+        if ($QueryText.Length -gt 50) {
+            $QueryTextLimitedTo50char = $QueryText.Substring(0, 50) + "..."
+        }
+        else {
+            $QueryTextLimitedTo50char = $QueryText
+        }
+        # Remove line breaks from the string literal
+        $QueryTextLimitedTo50char = $QueryTextLimitedTo50char -replace "`r`n", " "
+        $QueryText = $QueryTextLimitedTo50char    
+    }
+
+    $Msg = "Warning - Potential $VulnerabilityType at line $StartLine, Fragment: $QueryText, Comment: " + $Msg
+    
+    if (($ReportTriggerVuln) -or ($VulnerabilityType -ne "Trigger permission hijacking")) {
+        Add-TSqlCheckResult -Message $Msg
+        # If vulnerability was already added on $Global:TSqlCheckResults, return
+        $AlreadyAdded = $null
+        $AlreadyAdded = $Global:TSqlCheckResults | Where-Object { $_.Message -eq $Msg}
+        if ($null -ne $AlreadyAdded) {
+            return
+        }
+    }
 }
 
 function New-ScriptDomParser {
@@ -180,8 +567,8 @@ function New-ScriptDomParser {
             # Log the error for unavailable parsers
         }
     }
-    # Get the most recent parser available
-    $MostRecentParserAvailable = $AvailableParsers | Sort-Object i -Descending | Select-Object -First 1
+    # Get the most recent parser available - use Max for better performance
+    $MostRecentParserAvailable = if ($AvailableParsers.Count -gt 0) { $AvailableParsers | Where-Object { $_.i -eq ($AvailableParsers.i | Measure-Object -Maximum).Maximum } | Select-Object -First 1 } else { $null }
     if ($null -eq $MostRecentParserAvailable) {
         throw "No parsers available"
         return $null
@@ -228,8 +615,8 @@ function New-ScriptDomGenerator {
             # Log the error for unavailable generators
         }
     }
-    # Get the most recent generator available
-    $MostRecentGeneratorAvailable = $AvailableGenerators | Sort-Object i -Descending | Select-Object -First 1
+    # Get the most recent generator available - use Max for better performance
+    $MostRecentGeneratorAvailable = if ($AvailableGenerators.Count -gt 0) { $AvailableGenerators | Where-Object { $_.i -eq ($AvailableGenerators.i | Measure-Object -Maximum).Maximum } | Select-Object -First 1 } else { $null }
 
     if ($null -eq $MostRecentGeneratorAvailable) {
         throw "No generators available"
@@ -299,6 +686,10 @@ function Find-PotentialPasswordsInTSQL {
     # ---------- 3.  Scan string literals ---------------------------------------
     $hits = [System.Collections.Generic.List[object]]::new()
     foreach ($lit in $StringLiterals) {
+        # Skip checking if string literal exceeds maximum length to improve performance
+        if ($lit.Value.Length -gt $Global:MaximumStringLength) {
+            continue
+        }
         foreach ($r in $rx) {
             $m = $r.Match($lit.Value)
             if (-not $m.Success) { continue }
@@ -317,8 +708,9 @@ function Find-PotentialPasswordsInTSQL {
         }
     }
 
-    # ---------- 4.  Scan comments ---------------------------------------------
-    foreach ($tok in $tokenStream | Where-Object { $_.TokenType -match 'Comment' }) {
+    # ---------- 4.  Scan comments (cache filtered comments to avoid re-evaluation) ----
+    $commentTokens = @($tokenStream | Where-Object { $_.TokenType -match 'Comment' })
+    foreach ($tok in $commentTokens) {
         foreach ($r in $rx) {
             foreach ($m in $r.Matches($tok.Text)) {
                 $secret = $m.Groups['pw'].Value
@@ -676,15 +1068,17 @@ function Get-LastVariableAssignment {
     param (
         [string]$VarName,
         [System.Collections.Hashtable]$vResults,
-        [Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragment]$ExecExpression
+        [Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragment]$ExecExpression,
+        [bool]$SkipLastAssignment = $false
     )
     $LastAssignment = $null
 
+    # Cache vResults.Values to avoid repeated enumeration
+    $vResultsValues = @($vResults.Values)
+
     # Check execute statement with variable assignments via output parameters
     $ExecStatements = @()
-    $ExecStatementsTmp = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.ExecuteStatement]}
-    $ExecStatementsTmp = $ExecStatementsTmp | Where-Object { $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex }
-    $ExecStatementsTmp = $ExecStatementsTmp | Where-Object { $_.ExecuteSpecification.ExecutableEntity.Parameters.ParameterValue.Name -eq $VarName }
+    $ExecStatementsTmp = $vResultsValues | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.ExecuteStatement] -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex -and $_.ExecuteSpecification.ExecutableEntity.Parameters.ParameterValue.Name -eq $VarName }
     foreach ($exec in $ExecStatementsTmp) {
         $paramValues = $exec.ExecuteSpecification.ExecutableEntity.Parameters | Where-Object { $_.ParameterValue.Name -eq $VarName }
         foreach ($paramValue in $paramValues) {
@@ -693,31 +1087,23 @@ function Get-LastVariableAssignment {
             }
         }
     }
-    $ExecStatements = $ExecStatements | Sort-Object StartOffset -Descending | Select-Object -First 1
+    $ExecStatements = if ($ExecStatements.Count -gt 0) { $ExecStatements | Sort-Object StartOffset -Descending | Select-Object -First 1 } else { $null }
 
     # Check variable declare to see if is was assigned with a safe default expression
-    $VarDecls = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.DeclareVariableStatement] }
+    $VarDecls = $vResultsValues | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.DeclareVariableStatement] }
     $VarDecls = $VarDecls.Declarations | Where-Object { $_.VariableName.Value -eq $VarName -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex } | Sort-Object StartOffset -Descending | Select-Object -First 1
 
-    # Check all select set variable statements to see if the variable is safe
-    $SelectSetVars = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.SelectSetVariable] -and $_.Variable.Name -eq $VarName}
-    $SelectSetVars = $SelectSetVars | Where-Object { $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex }
-    $SelectSetVars = $SelectSetVars | Where-Object { -Not($ExecExpression.FirstTokenIndex -gt $_.Expression.FirstTokenIndex -and $ExecExpression.FirstTokenIndex -lt $_.Expression.LastTokenIndex)}
-    $SelectSetVars = $SelectSetVars | Sort-Object StartOffset -Descending | Select-Object -First 1
+    # Check all select set variable statements to see if the variable is safe (combine filters for performance)
+    $SelectSetVars = $vResultsValues | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.SelectSetVariable] -and $_.Variable.Name -eq $VarName -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex -and -Not($ExecExpression.FirstTokenIndex -gt $_.Expression.FirstTokenIndex -and $ExecExpression.FirstTokenIndex -lt $_.Expression.LastTokenIndex) } | Sort-Object StartOffset -Descending | Select-Object -First 1
 
-    # Check all set variable statements to see if the variable is safe
-    $SetVars = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.SetVariableStatement] -and $_.Variable.Name -eq $VarName}
-    $SetVars = $SetVars | Where-Object { $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex }
-    $SetVars = $SetVars | Where-Object { -Not($ExecExpression.FirstTokenIndex -gt $_.Expression.FirstTokenIndex -and $ExecExpression.FirstTokenIndex -lt $_.Expression.LastTokenIndex)}
-    $SetVars = $SetVars | Sort-Object StartOffset -Descending | Select-Object -First 1
+    # Check all set variable statements to see if the variable is safe (combine filters for performance)
+    $SetVars = $vResultsValues | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.SetVariableStatement] -and $_.Variable.Name -eq $VarName -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex -and -Not($ExecExpression.FirstTokenIndex -gt $_.Expression.FirstTokenIndex -and $ExecExpression.FirstTokenIndex -lt $_.Expression.LastTokenIndex) } | Sort-Object StartOffset -Descending | Select-Object -First 1
 
-    # Check all assignment set clauses to see if the variable is safe
-    $AssignmentSetClauses = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.AssignmentSetClause] -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex }
-    $AssignmentSetClauses = $AssignmentSetClauses | Where-Object { $_.Variable.Name -eq $VarName } | Sort-Object StartOffset -Descending | Select-Object -First 1
+    # Check all assignment set clauses to see if the variable is safe (combine filters for performance)
+    $AssignmentSetClauses = $vResultsValues | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.AssignmentSetClause] -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex -and $_.Variable.Name -eq $VarName } | Sort-Object StartOffset -Descending | Select-Object -First 1
 
     # Check all cursor fetch assignments to see if the variable is safe
-    $CursorFetchAssignments = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.FetchCursorStatement] -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex }
-    $CursorFetchAssignments = $CursorFetchAssignments | Where-Object { $_.IntoVariables.Name -eq $VarName } | Sort-Object StartOffset -Descending | Select-Object -First 1
+    $CursorFetchAssignments = $vResultsValues | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.FetchCursorStatement] -and $_.FirstTokenIndex -lt $ExecExpression.FirstTokenIndex -and $_.IntoVariables.Name -eq $VarName } | Sort-Object StartOffset -Descending | Select-Object -First 1
     
     # Assignment could be in a DeclareVariableStatement, SetVariableStatement, SelectSetVariable, AssignmentSetClause or FetchCursorStatement
     # Identify what is the last assignment for the variable and check if it is safe
@@ -731,6 +1117,10 @@ function Get-LastVariableAssignment {
         }
     }
 
+    if ($SkipLastAssignment){
+        # Skip the last assignment found
+        $NewLastAssignment = $NewLastAssignment | Sort-Object StartOffset -Descending | Select-Object -Skip 1
+    }
     $NewLastAssignment = $NewLastAssignment | Sort-Object StartOffset -Descending | Select-Object -First 1
 
     return $NewLastAssignment
@@ -990,7 +1380,7 @@ function Get-VisitFunctionCall([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFr
                                                 Fragment = $Fragment
                                             }
             }          
-            $ListOfValidFunctions = @("QUOTENAME", "datalength", "fn_getvalidname", "fn_quotefourpartname", "fn_replquotename", "fn_replreplacesinglequote", "fn_replmakestringliteral")
+            $ListOfValidFunctions = @("QUOTENAME", "datalength", "fn_getvalidname", "fn_quotefourpartname", "fn_replquotename", "fn_replreplacesinglequoteplusprotectstring", "fn_replreplacesinglequote", "fn_replmakestringliteral")
             # Check if the function name is in the list of valid functions
             if ($ListOfValidFunctions -contains $FunctionName) {
                 $this.AllFragments[$FragmentID].IsSafeFunction = $true
@@ -1019,7 +1409,8 @@ function Get-VisitFunctionCall([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFr
                     "USER_NAME",
                     "SCHEMA_NAME",
                     "COL_NAME",
-                    "TYPE_NAME"
+                    "TYPE_NAME",
+                    "OBJECT_SCHEMA_NAME"
                 )
                 if ($StringReturningFunctions -contains $FunctionName) {
                     $this.AllFragments[$FragmentID].IsReturningStringType = $true
@@ -1035,11 +1426,12 @@ function Get-VisitFunctionCall([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFr
     return $AllFragments
 }
 
-function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarExpression] $Expression, [object] $vResults, [string] $VarOnExec, [string] $VarUsedOnSet, [int] $Depth = 1){
+function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarExpression] $Expression, [object] $vResults, [string] $VarOnExec, [string] $VarUsedOnSet, [string] $DataTypeVarOnExec, [int] $Depth = 1){
     $CheckExpressionResults = @{}
     $VariableReferences = @{}
     $ColumnReferences = @{}
     $StringLiterals = @{}
+    $SystemFunctions = @{}
     $FunctionCalls = @{}
     $SafeFunctionCalls = @{}
 
@@ -1127,11 +1519,26 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
     $SafeFunctionCalls = $FunctionCalls.Values | Where-Object { $_.IsSafeFunction -eq $true }
     $UnSafeFunctionCalls = $FunctionCalls.Values | Where-Object { $_.IsReturningStringType -eq $true }
 
+    $Tmp = $null
+    $Tmp = $FunctionCalls
+    foreach($Row in $Tmp.Values) {
+        $FragmentID = "$($Row.GetType().Name)-$($Row.StartOffset)-$($Row.FragmentLength)"
+        if (-not $SystemFunctions.ContainsKey($FragmentID)) {
+            # if function used is one of known to read data from system tables like DB_NAME, OBJECT_NAME, USER_NAME, SCHEMA_NAME, OBJECT_SCHEMA_NAME, COL_NAME or TYPE_NAME, 
+            # then we consider it as a system function and we will check if the variable is used inside those functions, to consider it unsafe as quotename is required 
+            # to avoid injection when using those functions
+            if ($Row.IsReturningStringType -eq $true) {
+                $SystemFunctions[$FragmentID] = $Row
+            }
+        }
+    }    
+
     # At this point, we should have all the relevant fragments from the expression
     $CombinedFragmentsTmp = $null
     $CombinedFragmentsTmp += $VariableReferences
     $CombinedFragmentsTmp += $ColumnReferences
     $CombinedFragmentsTmp += $StringLiterals
+    $CombinedFragmentsTmp += $SystemFunctions
     $CombinedFragments = @{}
 
     # Adding on final list only the fragments we care, 
@@ -1158,11 +1565,37 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                     if (-not $CombinedFragments.ContainsKey($FragmentID)) {
                         $IsInsideSafeFunction = if ($SafeFunctionCalls.Fragment | Where-Object { $_.FirstTokenIndex -lt $Row.FirstTokenIndex -and $_.LastTokenIndex -gt $Row.LastTokenIndex }){$true}else{$false}
                         $IsInsideFunctionReturningStringType = if ($UnSafeFunctionCalls.Fragment | Where-Object { $_.FirstTokenIndex -lt $Row.FirstTokenIndex -and $_.LastTokenIndex -gt $Row.LastTokenIndex }){$true}else{$false}
+                        $IsImplicitConversionIssue = $false
+                        
+                        # If is inside a safe function, but the variable used on exec is not a unicode type, then we consider it unsafe, because of the potential for implicit conversion to non-unicode and the related injection risk
+                        if ($IsInsideSafeFunction -eq $true -and $VarOnExec) {
+                            if ($DataTypeVarOnExec -in @("VARCHAR", "CHAR")) {
+                                $IsInsideSafeFunction = $false
+                                $IsImplicitConversionIssue = $true
+                            }
+                        }
                         $CombinedFragments[$FragmentID] = [PSCustomObject]@{
                             Fragment = $Row
                             IsInsideSafeFunction = $IsInsideSafeFunction
                             IsInsideFunctionReturningStringType = $IsInsideFunctionReturningStringType
+                            IsImplicitConversionIssue = $IsImplicitConversionIssue
                         }
+                    }
+                }
+            }
+            $RowFragment = $Row.Fragment
+            if ($RowFragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.FunctionCall]) {
+                $FragmentID = "$($RowFragment.GetType().Name)-$($RowFragment.StartOffset)-$($RowFragment.FragmentLength)"
+                if (-not $CombinedFragments.ContainsKey($FragmentID)) {
+                    $IsInsideSafeFunction = if ($SafeFunctionCalls.Fragment | Where-Object { $_.FirstTokenIndex -lt $RowFragment.FirstTokenIndex -and $_.LastTokenIndex -gt $RowFragment.LastTokenIndex }){$true}else{$false}
+                    $IsInsideFunctionReturningStringType = if ($UnSafeFunctionCalls.Fragment | Where-Object { $_.FirstTokenIndex -lt $RowFragment.FirstTokenIndex -and $_.LastTokenIndex -gt $RowFragment.LastTokenIndex }){$true}else{$false}
+                    $IsImplicitConversionIssue = $false
+
+                    $CombinedFragments[$FragmentID] = [PSCustomObject]@{
+                        Fragment = $RowFragment
+                        IsInsideSafeFunction = $IsInsideSafeFunction
+                        IsInsideFunctionReturningStringType = $IsInsideFunctionReturningStringType
+                        IsImplicitConversionIssue = $IsImplicitConversionIssue
                     }
                 }
             }
@@ -1172,10 +1605,19 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                 if (-not $CombinedFragments.ContainsKey($FragmentID)) {
                     $IsInsideSafeFunction = if ($SafeFunctionCalls.Fragment | Where-Object { $_.FirstTokenIndex -lt $Row.FirstTokenIndex -and $_.LastTokenIndex -gt $Row.LastTokenIndex }){$true}else{$false}
                     $IsInsideFunctionReturningStringType = if ($UnSafeFunctionCalls.Fragment | Where-Object { $_.FirstTokenIndex -lt $Row.FirstTokenIndex -and $_.LastTokenIndex -gt $Row.LastTokenIndex }){$true}else{$false}
+
+                    # If is inside a safe function, but the variable used on exec is not a unicode type, then we consider it unsafe, because of the potential for implicit conversion to non-unicode and the related injection risk
+                    if ($IsInsideSafeFunction -eq $true -and $VarOnExec) {
+                        if ($DataTypeVarOnExec -in @("VARCHAR", "CHAR")) {
+                            $IsInsideSafeFunction = $false
+                            $IsImplicitConversionIssue = $true
+                        }
+                    }
                     $CombinedFragments[$FragmentID] = [PSCustomObject]@{
                         Fragment = $Row
                         IsInsideSafeFunction = $IsInsideSafeFunction
                         IsInsideFunctionReturningStringType = $IsInsideFunctionReturningStringType
+                        IsImplicitConversionIssue = $IsImplicitConversionIssue
                     }
                 }
             }
@@ -1186,7 +1628,8 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
     $UnsafeReferences = $CombinedFragments.Values | Where-Object { $_.IsInsideSafeFunction -eq $false -or (($_.IsInsideFunctionReturningStringType -eq $true) -and ($_.IsInsideSafeFunction -eq $false)) }
     $UnsafeReferences = $UnsafeReferences | Where-Object { $_.Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.ColumnReferenceExpression] `
                                                             -or $_.Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.VariableReference] `
-                                                            -or $_.Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.StringLiteral]}
+                                                            -or $_.Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.StringLiteral] `
+                                                            -or $_.Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.FunctionCall]}
 
     $ExpressionTsql = Get-FragmentText($Expression)
     if ($ExpressionTsql.Length -gt 50) {
@@ -1240,6 +1683,9 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
             # set it to unsafe
             $FragmentValue = $Fragment.Name
         }
+        elseif ($Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.FunctionCall]){
+            $FragmentValue = $Fragment.FunctionName.Value
+        }        
         Write-Msg -Message "$($Ident + "    " + "| ")$($Fragment.GetType().Name): {$FragmentValue} (Col:$($Fragment.StartColumn))" -VerboseMsg
     }
 
@@ -1264,10 +1710,11 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
             $hashValue = [Convert]::ToBase64String($hashProvider.ComputeHash([System.Text.Encoding]::Unicode.GetBytes($Fragment.Value)))
             if (-Not ($Global:StringsChecked.ContainsKey($hashValue))) {
                 if (($Fragment.Value -match "EXEC ") -or ($Fragment.Value -match "EXECUTE ") -or ($Fragment.Value -match "sp_executesql")) {
-                    if ($Fragment.Value -match "VARCHAR") {
+                    if (($Fragment.Value -match "VARCHAR") -or ($Fragment.Value -match " CHAR")) {
                         $IsSafe = $false
                         $SafeOrUnsafeReason = "Unsafe, suspicious pattern for string literal: {$FragmentValueLimitedTo50char}, contains EXEC or EXECUTE with VARCHAR, check if it is a dynamic SQL execution and if it is not vulnerable to SQL injection via unicode characters."
                         Write-Msg -Message "$($Ident + "    " + "| ")$($SafeOrUnsafeReason)" -VerboseMsg -Level Warning
+                        Add-TSqlCheckResult -Message $SafeOrUnsafeReason
                         # Adding string to the list of checked strings
                         $Global:StringsChecked[$hashValue] = [PSCustomObject]@{
                             Fragment = $Fragment
@@ -1286,6 +1733,7 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                         $IsSafe = $false
                         $SafeOrUnsafeReason = "Unsafe, suspicious pattern for string literal: {$FragmentValueLimitedTo50char}, pattern: $pattern"
                         Write-Msg -Message "$($Ident + "    " + "| ")$($SafeOrUnsafeReason)" -VerboseMsg -Level Warning
+                        Add-TSqlCheckResult -Message $SafeOrUnsafeReason                        
                         break
                     }
                 }
@@ -1307,6 +1755,17 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
             }
             Write-Msg -Message "$($Ident + "| ")Finished to check $($Fragment.GetType().Name): {$FragmentValueLimitedTo50char}" -VerboseMsg  -Level Finished
         }
+        elseif ($Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.FunctionCall]){
+            # If it is refering to a function call and we get here, it means it was not inside a safe function and it is returning a string type, so we consider it unsafe
+            Write-Msg -Message "$($Ident + "| ")Checking $($Fragment.GetType().Name): {$FragmentValue}" -VerboseMsg -Level Starting
+            $IsSafe = $false
+            $FragmentID = "$($Fragment.GetType().Name)-$($Fragment.StartOffset)-$($Fragment.FragmentLength)"
+            $tmp = $CombinedFragments[$FragmentID].IsInsideSafeFunction
+            $SafeOrUnsafeReason = "Unsafe, function call ($FragmentValue) is not inside a safe function and it returns a string type, check if it is a system function that can be used to read data from the database and if it is not protected by quotename or another safe function."
+            Write-Msg -Message "$($Ident + "    " + "| ")$($SafeOrUnsafeReason)" -VerboseMsg -Level Warning
+            Write-Msg -Message "$($Ident + "| ")Finished to check $($Fragment.GetType().Name): {$FragmentValue}" -VerboseMsg -Level Finished
+            Add-TSqlCheckResult -Message $SafeOrUnsafeReason
+        }        
         elseif ($Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.ColumnReferenceExpression]){
             # If it is refering to a column and we get here, it means it was not inside a safe function
             # set it to unsafe
@@ -1322,9 +1781,16 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
             }
             Write-Msg -Message "$($Ident + "| ")Checking $($Fragment.GetType().Name): {$ColumnName}" -VerboseMsg -Level Starting
             $IsSafe = $false
-            $SafeOrUnsafeReason = "Unsafe, column reference ($ColumnName) is not inside a safe function"
+            $FragmentID = "$($Fragment.GetType().Name)-$($Fragment.StartOffset)-$($Fragment.FragmentLength)"
+            if ($CombinedFragments[$FragmentID].IsImplicitConversionIssue -eq $true) {
+                $SafeOrUnsafeReason = "Unsafe, column reference ($ColumnName) is not safe because it is being used in dynamic construct using variable ($VarOnExec) that has a non-unicode type ($DataTypeVarOnExec). There is a potential implicit conversion to non-unicode risk."
+            }
+            else{
+                $SafeOrUnsafeReason = "Unsafe, column reference ($ColumnName) is not inside a safe function"
+            }
             Write-Msg -Message "$($Ident + "    " + "| ")$($SafeOrUnsafeReason)" -VerboseMsg -Level Warning
             Write-Msg -Message "$($Ident + "| ")Finished to check $($Fragment.GetType().Name): {$ColumnName}" -VerboseMsg -Level Finished
+            Add-TSqlCheckResult -Message $SafeOrUnsafeReason
         }
         elseif ($Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.VariableReference]){
             Write-Msg -Message "$($Ident + "| ")Checking $($Fragment.GetType().Name): $($Fragment.Name), used on line $($Fragment.StartLine), column position $($Fragment.StartColumn)" -VerboseMsg -Level Starting
@@ -1332,6 +1798,15 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
             $IsStringType = $true
             $IsInputParameter = $false
             $VarName = $Fragment.Name
+
+            # Is it variable on expression the same being assigned?
+            if ($VarName -eq $VarOnExec -or $VarName -eq $VarUsedOnSet) {
+                # if so, I may also need to check for previous assignments
+                $AlsoCheckPreviousAssignments = $true
+            }
+            else {
+                $AlsoCheckPreviousAssignments = $false
+            }
 
             # Check if the variable was already checked
             $VariableCheckStatus = $null
@@ -1362,7 +1837,7 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                     }
                     $UnsafeReported = $true
                     continue
-                }                
+                }
                 $VarDecls = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.DeclareVariableStatement] }
                 $VarDecls = $VarDecls.Declarations | Where-Object { $_.VariableName.Value -eq $VarName } | Sort-Object StartOffset -Descending | Select-Object -First 1
                 if ($null -eq $VarDecls) {
@@ -1390,7 +1865,16 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                         }
                     }
                     else{
-                        Write-Msg -Message "$($Ident + "    " + "| ")Already checked this variable, skipping..." -VerboseMsg
+                        if ($AlsoCheckPreviousAssignments -eq $true) {
+                            Write-Msg -Message "$($Ident + "    " + "| " )Already seen this fragment before, but same variable is being assigned, checking previous assignments..." -VerboseMsg
+                            $LastAssignment = Get-LastVariableAssignment -VarName $VarName -vResults $vResults -ExecExpression $Fragment -SkipLastAssignment $true
+                            if ($null -ne $LastAssignment) {
+                                Write-Msg -Message "$($Ident + "    " + "| " )Found the previous assignment for $VarName at line $($LastAssignment.StartLine), assigned with a $($LastAssignment.GetType().Name)" -VerboseMsg
+                            }
+                        }
+                        else{
+                            Write-Msg -Message "$($Ident + "    " + "| ")Already checked this variable, skipping..." -VerboseMsg
+                        }
                     }
                     # If the last assignment is not found, check if it is a input parameter
                     if ($null -eq $LastAssignment) {
@@ -1403,8 +1887,15 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                             if ($StringDataTypes -contains $InputParamType.SqlDataTypeOption -or $InputParamType -is [Microsoft.SqlServer.TransactSql.ScriptDom.UserDataTypeReference]) {
                                 # If last assignment it coming from as the input parameter, set as unsafe
                                 $IsSafe = $false
-                                $SafeOrUnsafeReason = "Unsafe, variable reference ($VarName) is not safe, it is an input parameter and is not properly quoted"
+                                if ($CombinedFragments[$FragmentID].IsImplicitConversionIssue -eq $true) {
+                                    $SafeOrUnsafeReason = "Unsafe, variable reference ($VarName) is not safe because it is being used in dynamic construct using variable ($VarOnExec) that has a non-unicode type ($DataTypeVarOnExec). There is a potential implicit conversion to non-unicode risk."
+                                }
+                                else{
+                                    $SafeOrUnsafeReason = "Unsafe, variable reference ($VarName) is not safe, it is an input parameter and is not properly quoted"
+                                }
+                                
                                 Write-Msg -Message "$($Ident + "    " + "| ")$($SafeOrUnsafeReason)" -VerboseMsg -Level Warning
+                                Add-TSqlCheckResult -Message $SafeOrUnsafeReason
                                 $IsInputParameter = $true
                                 # Add the variable to the list of checked variables
                                 $Global:VariablesChecked[$VarName] = [PSCustomObject]@{
@@ -1537,6 +2028,12 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                             }
                         }
                         elseif ($LastAssignment -is [Microsoft.SqlServer.TransactSql.ScriptDom.ExecuteStatement]) {
+                            # If the variable is assigned via an Execute statement, I need to check if it is using sp_MSguidtostr, which is a safe function that returns a string type, 
+                            # if so, I can consider it safe, otherwise, I have to consider it unsafe, since I don't know how the variable is being assigned inside the execute statement
+                            $ProcName = $LastAssignment.ExecuteSpecification.ExecutableEntity.ProcedureReference.ProcedureReference.Name.BaseIdentifier.Value
+                            if ($ProcName -in @("sp_MSguidtostr")) {
+                                continue
+                            }
                             # if the variable is assigned via an Execute statement, mark as unsafe
                             $IsSafe = $false
                             $SafeOrUnsafeReason = "Unsafe, variable assigned via Execute->Output statement. Since I don't know how this was assigned inside the execute, assuming unsafe."
@@ -1553,7 +2050,7 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
                         if ($null -ne $Expression){
                             # Call Get-CheckExpression again
                             $GetCheckExpressionResults = $null
-                            $GetCheckExpressionResults = Get-CheckExpression -Expression $Expression -vResults $vResults -VarOnExec $VarOnExec -VarUsedOnSet $VarName -Depth ($Depth + 1)
+                            $GetCheckExpressionResults = Get-CheckExpression -Expression $Expression -vResults $vResults -VarOnExec $VarOnExec -VarUsedOnSet $VarName -DataTypeVarOnExec $DataTypeVarOnExec -Depth ($Depth + 1)
                             foreach ($GetCheckExpressionResults_Row in $GetCheckExpressionResults.Values | Where-Object {$_.IsSafe -eq $false}) {
                                 # Add the fragment to the list of unsafe fragments
                                 Add-ExecVulnerability -Fragment $GetCheckExpressionResults_Row.Fragment -Msg $GetCheckExpressionResults_Row.SafeOrUnsafeReason
@@ -1676,16 +2173,46 @@ function Get-CheckExpression([Microsoft.SqlServer.TransactSql.ScriptDom.ScalarEx
     return $CheckExpressionResults
 }
 
-function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragment]$TSqlFragment, [string]$StatementRef) {
+function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSqlFragment]$TSqlFragment, [string]$StatementRef, [bool]$ReportTriggerVuln = $false) {
     $Global:SafeContextFirstTokenIndex = 0
     $Global:SafeContextLastTokenIndex = 0
     $Global:VisitedVarRef = @{}
+    $Global:DMLEvents = @()
+    $Global:DDLEvents = @()
+    # Define $Global:DMLKeywords and $Global:DDLKeywords as lists of keywords you want to check for in the string literals
+    $Global:DMLKeywords = @("INTO ", "INSERT INTO", "UPDATE", "DELETE", "MERGE")
+    $Global:DDLKeywords = @("CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "GRANT", "REVOKE", "DENY")
 
     # Call visitor to visit the TSQL fragment and fill out the Global variables we'll use to check for SQL injection
+    $VisitorStartTime = Get-Date
     $vResults = $null
     $SqlInjectionVisitor = [SqlInjectionVisitor]::new()
     $TSqlFragment.Accept($SqlInjectionVisitor)
     $vResults = $SqlInjectionVisitor.GetVisitorResults()
+    $VisitorTime = ((Get-Date) - $VisitorStartTime).TotalMilliseconds
+    $Global:OperationTimers['VisitorTraversal'] += $VisitorTime
+    Write-Msg -Message "Fragment visitor traversal completed (Duration: $VisitorTime ms)" -VerboseMsg
+    # Print out information about DML and DDL events found
+    if ($Global:DMLEvents.Count -gt 0) {
+        Write-Msg -Message "DML Events found:" -VerboseMsg
+        foreach ($DMLEvent in $Global:DMLEvents) {
+            if ($ReportTriggerVuln) {
+                $Msg = "DML Event found: $($DMLEvent.Type) at line $($DMLEvent.Line)"
+                # Add-TSqlCheckResult -Message $Msg
+                Add-ExecVulnerability -Fragment $DMLEvent.Fragment -Msg $Msg -VulnerabilityType "Trigger permission hijacking" -ReportTriggerVuln $true
+            }
+        }
+    }
+    if ($Global:DDLEvents.Count -gt 0) {
+        Write-Msg -Message "DDL Events found:" -VerboseMsg
+        foreach ($DDLEvent in $Global:DDLEvents) {
+            if ($ReportTriggerVuln) {
+                $Msg = "DDL Event found: $($DDLEvent.Type) at line $($DDLEvent.Line)" 
+                # Add-TSqlCheckResult -Message $Msg
+                Add-ExecVulnerability -Fragment $DDLEvent.Fragment -Msg $Msg -VulnerabilityType "Trigger permission hijacking" -ReportTriggerVuln $true
+            }
+        }
+    }
 
     # Checking for SQL injection vulnerabilities
     # Starting the code with the parts I'm interested in, which are exec and sp_executesql
@@ -1705,12 +2232,13 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
         if ($ExecutableEntity -is [Microsoft.SqlServer.TransactSql.ScriptDom.ExecutableProcedureReference]) {
             if ($null -ne $ExecutableEntity.ProcedureReference.ProcedureVariable) {
                 # If the procedure is being called via a variable, consider it a dynamic execution
+                Write-Msg -Message "Found a dynamic execution via procedure variable: $($ExecutableEntity.ProcedureReference.ProcedureVariable.Name)" -VerboseMsg -Level Output
                 $DynamicExecutions.Add($ExecStatement_Row.StartOffset, $ExecutableEntity)
                 continue
             }
             else{
                 $ProcName = $ExecutableEntity.ProcedureReference.ProcedureReference.Name.BaseIdentifier.Value
-                if ($ProcName -eq "sp_prepexec" -or $ProcName -eq "sp_prepare" -or $ProcName -eq "sp_executesql" -or $ProcName -eq "sp_cursoropen") {
+                if ($ProcName -in @("sp_prepexec", "sp_prepare", "sp_executesql", "sp_cursoropen")) {
                     $DynamicExecutions.Add($ExecStatement_Row.StartOffset, $ExecutableEntity)
                 }
             }
@@ -1721,15 +2249,19 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
     }
     $DynamicExecutionsCount = $DynamicExecutions.Count
     if ($DynamicExecutionsCount -eq 0) {
-        Write-Msg -Message "No dynamic executions found" -VerboseMsg -Level Finished
+        $DynamicExecutionsMsg = "No dynamic executions found"
+        Add-TSqlCheckResult -Message $DynamicExecutionsMsg
+        Write-Msg -Message $DynamicExecutionsMsg -VerboseMsg -Level Finished
         return $Global:TSqlCheckResults
     }
     else {
-        Write-Msg -Message "Found $DynamicExecutionsCount dynamic executions" -VerboseMsg -Level Finished
-        Add-TSqlCheckResult -Message "Info - Found $DynamicExecutionsCount dynamic executions"
+        $DynamicExecutionsMsg = "Found $DynamicExecutionsCount dynamic executions"
+        Add-TSqlCheckResult -Message $DynamicExecutionsMsg
+        Write-Msg -Message $DynamicExecutionsMsg -VerboseMsg -Level Finished        
     }
 
     foreach ($DynamicExecutions_Row in $DynamicExecutions.Keys | Sort-Object $_.StartOffset) {
+        $DynamicExecStartTime = Get-Date
         $Global:StringsChecked = @{}
         $Global:VariablesChecked = @{}
         
@@ -1829,11 +2361,13 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
             Write-Msg -Message "    | Variable used in the dynamic exec: $VarName $UserDataTypeName($($VarSize))" -VerboseMsg
             # If variable size is 2147483647, it means it is a varchar(max) or nvarchar(max)
             # In this case, ignore the variable size check
-            if ($VarSize -eq 2147483647 -or $VarSize -eq 4000 -or $VarSize -eq 8000){
+            if ($VarSize -in @(2147483647, 4000, 8000)){
                 Write-Msg -Message "        | Variable size is 4000/8000/2147483647, ignoring buffer size check" -VerboseMsg
                 continue
             }
             Write-Msg -Message "        | Starting to calculate buffer required to avoid SQL Injection by data truncation" -VerboseMsg -Level Starting
+            $BufferCheckStartTime = Get-Date
+            # $BufferCheckStartTime = Get-Date
 
             # Find the last assignment for the variable used on exec
             $LastAssignment = $null
@@ -1991,9 +2525,14 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
             #     $VarName2 = $VariableReference.Name
             #     $Result = Get-FindLastAssignmentAndValidadeBufferSize -VarName $VarName2 -vResults $vResults
             # }
+            
+            $BufferCheckTime = ((Get-Date) - $BufferCheckStartTime).TotalMilliseconds
+            Write-Msg -Message "        | Finished to calculate buffer required (Duration: $BufferCheckTime ms)" -VerboseMsg -Level Finished
+            $Global:OperationTimers['BufferSizeChecking'] += $BufferCheckTime
         }
 
         # Foreach variable and string reference, check the expressions
+        $StringsCheckStartTime = Get-Date
         if ($null -ne $VisitVariableAndStringReferenceResults){
             foreach ($key in $VisitVariableAndStringReferenceResults.Keys) {
                 $Fragment = $VisitVariableAndStringReferenceResults[$key]
@@ -2008,11 +2547,46 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
                     $FragmentValueLimitedTo50char = $FragmentValueLimitedTo50char -replace "`r`n", " "
                     Write-Msg -Message "    | Checking $($Fragment.GetType().Name): {$FragmentValueLimitedTo50char}" -VerboseMsg -Level Starting
                     
+                    # Skip checking if string literal exceeds maximum length to improve performance
+                    if ($Fragment.Value.Length -gt $Global:MaximumStringLength) {
+                        Write-Msg -Message "    | String literal size ($($Fragment.Value.Length)) exceeds MaximumStringLength ($Global:MaximumStringLength), skipping check for performance reasons" -VerboseMsg -Level Warning
+                        Write-Msg -Message "    | Finished to check $($Fragment.GetType().Name): {$FragmentValueLimitedTo50char}" -VerboseMsg  -Level Finished
+                        continue
+                    }
+                    
                     # Check if the string literal was already checked
                     $hashValue = ""
                     $hashProvider = [System.Security.Cryptography.SHA1CryptoServiceProvider]::new()
                     $hashValue = [Convert]::ToBase64String($hashProvider.ComputeHash([System.Text.Encoding]::Unicode.GetBytes($Fragment.Value)))
                     if (-Not ($Global:StringsChecked.ContainsKey($hashValue))) {
+                        # Check for DML and DDL events in the string literal and add it on DDL and DML events list if found
+                        foreach ($DMLKeyword in $Global:DMLKeywords) {
+                            # (?i) → ignore case
+                            $escaped = '(?i)' + [regex]::Escape($DMLKeyword)
+                            if ($Fragment.Value -match $escaped) {
+                                if ($ReportTriggerVuln) {
+                                    $Msg = "        | DML keyword found in string literal: keyword: $DMLKeyword"
+                                    Write-Msg -Message $Msg -VerboseMsg -Level Warning
+                                    # Add-TSqlCheckResult -Message $Msg
+                                    Add-ExecVulnerability -Fragment $Fragment -Msg $Msg -VulnerabilityType "Trigger permission hijacking" -ReportTriggerVuln $true
+                                    break
+                                }
+                            }
+                        }
+                        foreach ($DDLKeyword in $Global:DDLKeywords) {
+                            # (?i) → ignore case
+                            $escaped = '(?i)' + [regex]::Escape($DDLKeyword)
+                            if ($Fragment.Value -match $escaped) {
+                                if ($ReportTriggerVuln) {
+                                    $Msg = "        | DDL keyword found in string literal: keyword: $DDLKeyword"
+                                    Write-Msg -Message $Msg -VerboseMsg -Level Warning
+                                    # Add-TSqlCheckResult -Message $Msg
+                                    Add-ExecVulnerability -Fragment $Fragment -Msg $Msg -VulnerabilityType "Trigger permission hijacking" -ReportTriggerVuln $true
+                                    break
+                                }
+                            }
+                        }
+
                         # Check if the string literal is a safe expression
                         # Look for suspicious patterns
                         $FoundSuspiciousPattern = $false
@@ -2052,7 +2626,7 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
                     Write-Msg -Message "    | Finished to check $($Fragment.GetType().Name): {$FragmentValueLimitedTo50char}" -VerboseMsg  -Level Finished
                 }
                 elseif ($Fragment -is [Microsoft.SqlServer.TransactSql.ScriptDom.VariableReference]) {
-                    Write-Msg -Message "    | Checking $($Fragment.GetType().Name): $($Fragment.Name)" -VerboseMsg -Level Starting
+                    Write-Msg -Message "    | Checking $($Fragment.GetType().Name): $($Fragment.Name), used on line $($Fragment.StartLine), column position $($Fragment.StartColumn)" -VerboseMsg -Level Starting
                     # Find the variable declaration
                     $VarName = $Fragment.Name
                     # Check if the variable was already checked
@@ -2083,7 +2657,7 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
                         $LastAssignment = Get-LastVariableAssignment -VarName $VarName -vResults $vResults -ExecExpression $Fragment
                         if ($null -ne $LastAssignment) {
                             Write-Msg -Message "        | Found the last assignment for $VarName at line $($LastAssignment.StartLine), assigned with a $($LastAssignment.GetType().Name)" -VerboseMsg
-                        }                        
+                        }
                         # If the last assignment is not found, check if it is a input parameter
                         if ($null -eq $LastAssignment) {
                             $LastAssignment = $vResults.Values | Where-Object { $_ -is [Microsoft.SqlServer.TransactSql.ScriptDom.ProcedureParameter] }
@@ -2254,6 +2828,12 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
                                 # }
                             }
                             elseif ($LastAssignment -is [Microsoft.SqlServer.TransactSql.ScriptDom.ExecuteStatement]) {
+                                # If the variable is assigned via an Execute statement, I need to check if it is using sp_MSguidtostr, which is a safe function that returns a string type, 
+                                # if so, I can consider it safe, otherwise, I have to consider it unsafe, since I don't know how the variable is being assigned inside the execute statement
+                                $ProcName = $LastAssignment.ExecuteSpecification.ExecutableEntity.ProcedureReference.ProcedureReference.Name.BaseIdentifier.Value
+                                if ($ProcName -in @("sp_MSguidtostr", "sp_hexadecimal")) {
+                                    continue
+                                }                                
                                 # if the variable is assigned via an Execute statement, mark as unsafe
                                 $IsSafe = $false
                                 $SafeOrUnsafeReason = "Unsafe, variable assigned via Execute->Output statement. Since I don't know how this was assigned inside the execute, assuming unsafe."
@@ -2268,7 +2848,7 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
                                 continue
                             }
                             # Check if the expression is safe
-                            $GetCheckExpressionResults = Get-CheckExpression -Expression $Expression -vResults $vResults -VarOnExec $VarName -Depth 2
+                            $GetCheckExpressionResults = Get-CheckExpression -Expression $Expression -vResults $vResults -VarOnExec $VarName -DataTypeVarOnExec $UserDataTypeName -Depth 2
                             foreach ($GetCheckExpressionResults_Row in $GetCheckExpressionResults.Values | Where-Object { $_.IsSafe -eq $false }) {
                                 Add-ExecVulnerability -Fragment $GetCheckExpressionResults_Row.Fragment -Msg $GetCheckExpressionResults_Row.SafeOrUnsafeReason
                             }
@@ -2286,14 +2866,39 @@ function Invoke-SQLInjectionCheck([Microsoft.SqlServer.TransactSql.ScriptDom.TSq
                 }
             }
         }
-        Write-Msg -Message "Finished to check dynamic execution on line $($ExecStatement_Row.StartLine)" -VerboseMsg -Level Finished
+        $StringsCheckTime = ((Get-Date) - $StringsCheckStartTime).TotalMilliseconds
+        if ($StringsCheckTime -gt 0) {
+            Write-Msg -Message "    | String and Variable checking completed (Duration: $StringsCheckTime ms)" -VerboseMsg
+            $Global:OperationTimers['StringLiteralChecking'] += $StringsCheckTime
+        }
+        $DynamicExecTime = ((Get-Date) - $DynamicExecStartTime).TotalMilliseconds
+        Write-Msg -Message "Finished to check dynamic execution on line $($ExecStatement_Row.StartLine) (Duration: $DynamicExecTime ms)" -VerboseMsg -Level Finished
+        $Global:OperationTimers['DynamicExecProcessing'] += $DynamicExecTime
     }
     return
 }
 
-function Invoke-TSqlChecks([string] $InputText, [switch] $ShowVerboseMessages = $false, [switch] $CheckForPasswords = $false, [switch] $ReportBuyfferSizeVuln = $false) {
+function Invoke-TSqlChecks([string] $InputText, [switch] $ShowVerboseMessages = $false, [switch]$CheckForPasswords = $false, [switch]$ReportBuyfferSizeVuln = $false, [switch]$ReportTriggerVuln = $false, [int] $MaximumStringLength = 200000) {
     $script:TraceBuffer  = @()   # collects messages for the *current* check
     $Global:TSqlCheckResults = @()
+    $Global:ShowVerboseMessages = $ShowVerboseMessages
+    $Global:MaximumStringLength = $MaximumStringLength
+    
+    # Initialize execution timers - fresh for each execution
+    $Global:ExecutionTimers = @{
+        'TotalExecution' = [datetime]::Now
+        'ParseTime' = 0
+        'SQLInjectionCheckTime' = 0
+        'PasswordCheckTime' = 0
+    }
+    
+    # Initialize operation timers - fresh for each execution
+    $Global:OperationTimers = @{
+        'VisitorTraversal' = 0
+        'DynamicExecProcessing' = 0
+        'BufferSizeChecking' = 0
+        'StringLiteralChecking' = 0
+    }
     
     if ([string]::IsNullOrEmpty($InputText)) {
         $Global:TSqlCheckResults += [PsCustomObject]@{
@@ -2304,10 +2909,23 @@ function Invoke-TSqlChecks([string] $InputText, [switch] $ShowVerboseMessages = 
     }
 
     try {
+
+        Write-Msg -Message "Input text length: $($InputText.Length) characters" -VerboseMsg -Level Output
+
+        # # If number of characters exceeds maximum length, skip the checks
+        # if ($InputText.Length -gt $Global:MaximumStringLength) {
+        #     $Msg = "Input text length ($($InputText.Length) characters) exceeds MaximumStringLength ($Global:MaximumStringLength), skipping T-SQL checks for performance reasons"
+        #     Write-Msg -Message $Msg -Level Warning
+        #     Add-TSqlCheckResult -Message $Msg
+        #     return $Global:TSqlCheckResults
+        # }
+
         # Do some cleanup in the input statement to parse XML (whoisactive results), QueryStore and CachePlan queries.
         Write-Msg -Message "Running CleanUpAndParseTSqlText..." -VerboseMsg -Level Starting
+        $ParseStartTime = Get-Date
         $CleanUpAndParseTSqlTextResult = Get-CleanUpAndParseTSqlText -InputText $InputText
-        Write-Msg -Message "Finished to run CleanUpAndParseTSqlText..." -VerboseMsg -Level Finished
+        $Global:ExecutionTimers['ParseTime'] = ((Get-Date) - $ParseStartTime).TotalMilliseconds
+        Write-Msg -Message "Finished to run CleanUpAndParseTSqlText... (Duration: $($Global:ExecutionTimers['ParseTime']) ms)" -VerboseMsg -Level Finished
         
         $InputText = $CleanUpAndParseTSqlTextResult.InputText
         $Tree = $CleanUpAndParseTSqlTextResult.Tree
@@ -2315,33 +2933,59 @@ function Invoke-TSqlChecks([string] $InputText, [switch] $ShowVerboseMessages = 
 
         # If there were no errors, go ahead and run the checks
         if ($Errors.Count -eq 0) {
+            $SQLInjectionCheckStartTime = Get-Date
             foreach ($Batch in ($Tree -as [Microsoft.SqlServer.TransactSql.ScriptDom.TSqlScript]).Batches) {
+                $Global:TSqlCheckResults = @()
                 Write-Msg -Message "Running TSQL Checks on Batch starting on line $($Batch.StartLine)..." -VerboseMsg -Level Starting
 
                 # Check for SQL Injection
-                Invoke-SQLInjectionCheck -TSqlFragment $Batch -StatementRef $InputText
+                Invoke-SQLInjectionCheck -TSqlFragment $Batch -StatementRef $InputText -ReportTriggerVuln $ReportTriggerVuln
 
                 Write-Msg -Message "Finished to run TSQL Checks on Batch starting on line $($Batch.StartLine)..." -VerboseMsg -Level Finished
             }
-            if ($Global:TSqlCheckResults.Count -eq 0) {
-                Add-TSqlCheckResult -Message "No dynamic executions found"
-            }
+            $Global:ExecutionTimers['SQLInjectionCheckTime'] = ((Get-Date) - $SQLInjectionCheckStartTime).TotalMilliseconds
 
             # Check for leaked passwords in the t-sql
             if ($CheckForPasswords -eq $true) {
                 Write-Msg -Message "Checking for potential passwords in the t-sql..." -VerboseMsg -Level Starting
+                $PasswordCheckStartTime = Get-Date
                 $Passwords = Find-PotentialPasswordsInTSQL -Fragment $Batch
+                $Global:ExecutionTimers['PasswordCheckTime'] = ((Get-Date) - $PasswordCheckStartTime).TotalMilliseconds
                 foreach ($Password in $Passwords) {
                     $PasswordValue = $Password | Select-Object StartLine, Fragment, Secret, InFragment, Pattern | Format-List | Out-String
-                    $Msg = "Found a potential password in the t-sql stmt: {$($Password.Secret)}"
-                    Write-Msg -Message $Msg -VerboseMsg
-                    $Msg = $PasswordValue.TrimEnd("`r`n")
-                    $Msg = "Found a potential password in the t-sql stmt: $Msg"
+                    $Msg = "Found a potential password in the t-sql stmt: {$($Password.Secret)}, password value: {$($PasswordValue)}"
+                    Write-Msg -Message $Msg -VerboseMsg -Level Warning
                     Add-TSqlCheckResult -Message $Msg
                 }
                 Write-Msg -Message "Finished to check for potential passwords in the t-sql..." -VerboseMsg -Level Finished
             }
 
+            # Final call to Add-TSqlCheckResult to make sure complete trace details is returned
+            
+            # Calculate total execution time and log summary
+            $TotalTime = ((Get-Date) - $Global:ExecutionTimers['TotalExecution']).TotalMilliseconds
+            $OperationTimerSummary = @"
+=== EXECUTION TIME SUMMARY ===
+Total Execution Time: $TotalTime ms
+    - Parsing:                    $($Global:ExecutionTimers['ParseTime']) ms
+    - SQL Injection Check:        $($Global:ExecutionTimers['SQLInjectionCheckTime']) ms
+        -- Visitor Traversal:       $($Global:OperationTimers['VisitorTraversal']) ms
+        -- Dynamic Exec Processing: $($Global:OperationTimers['DynamicExecProcessing']) ms
+            -- Buffer Size Checking: $($Global:OperationTimers['BufferSizeChecking']) ms
+            -- String/Var Checking:  $($Global:OperationTimers['StringLiteralChecking']) ms
+    - Password Check:             $($Global:ExecutionTimers['PasswordCheckTime']) ms
+"@
+            if ($null -ne $Global:OperationTimers -and $Global:OperationTimers.Count -gt 4) {
+                $OperationTimerSummary += "`nOther Operation Times:`n"
+                $KnownOps = @('VisitorTraversal', 'DynamicExecProcessing', 'BufferSizeChecking', 'StringLiteralChecking')
+                foreach ($operation in $Global:OperationTimers.GetEnumerator() | Where-Object { $_.Name -notin $KnownOps } | Sort-Object Value -Descending) {
+                    $OperationTimerSummary += "  - $($operation.Name): $($operation.Value) ms`n"
+                }
+            }
+            
+            Write-Msg -Message $OperationTimerSummary -VerboseMsg
+            $OperationTimerSummary = "Finalizing T-SQL Checks results." + [Environment]::NewLine + $OperationTimerSummary
+            Add-TSqlCheckResult -Message $OperationTimerSummary
             return $Global:TSqlCheckResults
         }
         # Report the parsing errors

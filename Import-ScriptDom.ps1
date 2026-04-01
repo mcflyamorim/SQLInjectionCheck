@@ -38,8 +38,8 @@ function Import-ScriptDom { Param([string]$ScriptPath )
         return
     }
     Write-Msg "Starting script to load ScriptDom" -Level Starting
-	$SearchPathList = @("${env:ProgramFiles}\Microsoft SQL Server")
-    $SearchPathList += @("${env:ProgramFiles(x86)}\Microsoft SQL Server")
+	# $SearchPathList = @("${env:ProgramFiles}\Microsoft SQL Server")
+    # $SearchPathList += @("${env:ProgramFiles(x86)}\Microsoft SQL Server")
     $SearchPathList += @($ScriptPath)
 
 	# Write-Msg "Searching for: Microsoft.SqlServer.TransactSql.ScriptDom.dll"

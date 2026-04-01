@@ -141,12 +141,13 @@
 # -----------------------------
 param
 (
-    [String]$SQLInstance = "AMORIM-7VQGKX3\SQL2022",    # Default SQL instance name
+    [String]$SQLInstance = "LENOVOFABIANO\SQL2025",    # Default SQL instance name
     [String]$Database = "master",                        # Default database context
-    [String]$UserName,                                   # Optional SQL login user
-    [String]$Password,                                   # Optional SQL login password
+    [String]$UserName = "",                                   # Optional SQL login user
+    [String]$Password = "",                                   # Optional SQL login password
     [String] $QueryTextColumnName = 'sql_text',          # Default SQL text column name for custom queries
-    [String] $CustomQuery = "",                          # Optional custom query
+    [String] $CustomQuery = 
+"SELECT * FROM mssqlsystemresource_2025.dbo.tmp3 WHERE DbName = 'msdb'",                          # Optional custom query
     [Switch] $KillExcel,                                 # Kill Excel processes before export
     [switch] $IncludeSystemObjects = $false,             # Include system stored procedures
     [switch] $CreateTranscriptLog,                       # Create transcript log
@@ -375,7 +376,7 @@ try {
             OBJECT_DEFINITION(object_id) AS cTSql,
             create_date AS CreateDate
         FROM sys.objects
-        WHERE OBJECT_DEFINITION(OBJECT_ID(name)) IS NOT NULL
+        WHERE OBJECT_DEFINITION(OBJECT_ID(OBJECT_SCHEMA_NAME(object_id) + '.' + name)) IS NOT NULL
             AND type = 'P'
         UNION ALL
         SELECT DB_NAME() AS DbName,
@@ -388,7 +389,7 @@ try {
             OBJECT_DEFINITION(object_id) AS cTSql,
             create_date AS CreateDate
         FROM sys.triggers
-        WHERE OBJECT_DEFINITION(object_id) IS NOT NULL
+        WHERE OBJECT_DEFINITION(OBJECT_ID(OBJECT_SCHEMA_NAME(object_id) + '.' + name)) IS NOT NULL
 "@
 
     # -----------------------------
@@ -404,15 +405,15 @@ try {
     # EXECUTE $QuerySpAndTriggers ON EACH DATABASE
     # -----------------------------
     # Loop over accessible databases and collect stored procedure and trigger definitions.
-    $QueryResultsDb = @()
     foreach ($Database_Row in $Databases) {
         Write-Msg -Message "Starting to execute query to read SPs and triggers from DB $($Database_Row.Name)" -Level Starting
 
+        $QueryResultsDb = @()
         # Invoke-DbaQuery runs the T-SQL in the context of the target DB and returns PSObjects.
         $QueryResultsDb = Invoke-DbaQuery -SqlInstance $DbaInstance -Database $($Database_Row.Name) -Query $QuerySpAndTriggers -As PSObject -ErrorAction Stop
-
         # Append the returned rows to the aggregate results collection.
         $QueryResults += $QueryResultsDb
+        
         Write-Msg -Message "Finished to execute query, RowCount = $($QueryResultsDb.Count)" -Level Finished
     }
 
@@ -426,14 +427,13 @@ try {
                 OBJECT_SCHEMA_NAME(object_id) AS SchemaName,
                 CONVERT(sysname, '') AS TabName,
                 object_id AS ObjID,
-                name AS ObjName,
+                OBJECT_NAME(object_id) AS ObjName,
                 'System - StoredProcedure' AS ObjType,
-                LEN(OBJECT_DEFINITION(object_id)) AS cLength,
-                OBJECT_DEFINITION(object_id) AS cTSql,
-                create_date AS CreateDate
-            FROM sys.system_objects
-            WHERE OBJECT_DEFINITION(OBJECT_ID(name)) IS NOT NULL
-                AND type = 'P';
+                LEN(definition) AS cLength,
+                definition AS cTSql,
+                '' AS CreateDate
+            FROM sys.all_sql_modules
+            WHERE definition LIKE '%CREATE%PROC%';
 "@
         Write-Msg -Message "Starting to execute query to read system objects" -Level Starting
 
@@ -541,6 +541,10 @@ try {
     # -----------------------------
     # RUN STATIC ANALYSIS (Invoke-TSqlChecks) FOR EACH CAPTURED STATEMENT
     # -----------------------------
+
+    # Re-order $QueryResults by cTSql length ascending to prioritize shorter statements first
+    $QueryResults = $QueryResults | Sort-Object { $_.cTSql.Length }
+
     $i = 0
     $startTime = Get-Date
     Write-Msg -Message "Starting to run Invoke-TSqlChecks" -Level Starting
@@ -570,9 +574,20 @@ try {
         # -----------------------------
         # INVOKE THE T-SQL CHECKS
         # -----------------------------
+
+        # $tmp1 = $($Row.cTSql)
+        # if ($tmp1 -notlike "*sp_MSevaluate_change_membership_for_pubid*"){
+        #     continue
+        # }        
+        # if ($tmp1 -like "*sp_MSevaluate_change_membership_for_pubid*"){
+        #     write-host "debug"
+        # }
+
         # Call Invoke-TSqlChecks which parses T-SQL using ScriptDom and returns findings.
         # -ReportBuyfferSizeVuln and -CheckForPasswords are example flags that your module supports.
-        $TSqlChecks = Invoke-TSqlChecks -InputText $($Row.cTSql) -ReportBuyfferSizeVuln -CheckForPasswords -ErrorAction Stop
+        #$TSqlChecks = Invoke-TSqlChecks -InputText $($Row.cTSql) -ReportBuyfferSizeVuln -CheckForPasswords
+
+        $TSqlChecks = Invoke-TSqlChecks -InputText $($Row.cTSql) -ReportBuyfferSizeVuln -MaximumStringLength 100000
 
         # Extract the human-readable message output and attach to the $Row object.
         $TSqlCheckResult = $TSqlChecks | Select-Object -Property Message | Format-List | Out-String
